@@ -327,8 +327,8 @@ func usage(w io.Writer) {
 	fmt.Fprintf(w, "  -l, --list           list supported digests\n")
 	fmt.Fprintf(w, "  -h, --help           display this help and exit\n")
 	fmt.Fprintf(w, "  -v, --version        output version information and exit\n\n")
-	fmt.Fprintf(w, "NOTE.\n")
-	fmt.Fprintf(w, "  One digest option is required, for example: -sha256.\n")
+	fmt.Fprintf(w, "The digest algorithm must be specified (e.g., -sha256, -sha1).\n")
+	fmt.Fprintf(w, "Use -l or --list to see all supported algorithms.\n")
 }
 
 func printVersion(w io.Writer) {
