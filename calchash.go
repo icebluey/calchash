@@ -288,7 +288,7 @@ func supportedDigests() []digestSpec {
 				return &hashDigester{h: sha3.New512()}, nil
 			},
 		},
-						{
+		{
 			flagName:  "whirlpool",
 			tagName:   "WHIRLPOOL",
 			digestLen: 64,
@@ -867,6 +867,9 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 		}
 
 		br := bufio.NewReader(rr)
+		fileReadErr := false
+		goodLineThisFile := false
+		badLineThisFile := 0
 		lineno := 0
 
 		for {
@@ -876,6 +879,7 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 			}
 			if rerr != nil {
 				trouble = true
+				fileReadErr = true
 				writeErr(opt, "%s: %v", lf, rerr)
 				break
 			}
@@ -886,6 +890,7 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 				trim := strings.TrimSpace(string(rec))
 				if trim != "" && !strings.HasPrefix(trim, "#") {
 					badLine = true
+					badLineThisFile++
 					warnf("%s:%d: improperly formatted checksum line", lf, lineno)
 				}
 				continue
@@ -893,6 +898,7 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 
 			if pl.bsdAlgo != "" && !strings.EqualFold(pl.bsdAlgo, spec.tagName) {
 				badLine = true
+				badLineThisFile++
 				warnf("%s:%d: algorithm mismatch (got %q, expected %q)",
 					lf, lineno, pl.bsdAlgo, spec.tagName)
 				continue
@@ -903,11 +909,13 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 
 			if !isHex(dh) || len(dh) != wantLen {
 				badLine = true
+				badLineThisFile++
 				warnf("%s:%d: invalid %s digest", lf, lineno, spec.tagName)
 				continue
 			}
 
 			goodLine = true
+			goodLineThisFile = true
 
 			if !opt.zero {
 				u, uerr := unescapeFilename(fn)
@@ -919,6 +927,7 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 			/* stdin conflict: list is stdin, target "-" would also be stdin */
 			if lf == "-" && fn == "-" {
 				badLine = true
+				badLineThisFile++
 				warnf("%s:%d: target file '-' is invalid when reading checksum list from stdin",
 					lf, lineno)
 				continue
@@ -973,6 +982,19 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 			}
 		}
 
+		if badLineThisFile > 0 && goodLineThisFile && !fileReadErr && !opt.status {
+			if badLineThisFile == 1 {
+				fmt.Fprintf(os.Stderr, "%s: WARNING: 1 line is improperly formatted\n", progName)
+			} else {
+				fmt.Fprintf(os.Stderr, "%s: WARNING: %d lines are improperly formatted\n", progName, badLineThisFile)
+			}
+		}
+
+		if !goodLineThisFile && !fileReadErr {
+			trouble = true
+			writeErr(opt, "%s: no properly formatted %s checksum lines found", lf, spec.tagName)
+		}
+
 		clos()
 	}
 
@@ -981,7 +1003,6 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 	}
 
 	if opt.strict && !goodLine {
-		writeErr(opt, "no properly formatted checksum lines found")
 		return exitTrouble
 	}
 
