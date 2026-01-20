@@ -74,6 +74,8 @@ type options struct {
 	strict        bool
 	warn          bool
 
+	append bool
+
 	outputPath string
 	forceUTF8  bool
 
@@ -323,6 +325,7 @@ func usage(w io.Writer) {
 	fmt.Fprintf(w, "      --status         don't output anything, status code shows success\n")
 	fmt.Fprintf(w, "      --strict         exit non-zero for improperly formatted checksum lines\n")
 	fmt.Fprintf(w, "  -w, --warn           warn about improperly formatted checksum lines\n\n")
+	fmt.Fprintf(w, "  -a, --append         append to file when using with -o or --output\n")
 	fmt.Fprintf(w, "  -o, --output         write output to file\n")
 	fmt.Fprintf(w, "  -u, --utf8           force output characters are UTF-8 encoding\n")
 	fmt.Fprintf(w, "  -l, --list           list supported digests\n")
@@ -538,7 +541,15 @@ func openOutput(opt *options) (io.Writer, func(), error) {
 	if opt.outputPath == "" || opt.outputPath == "-" {
 		return os.Stdout, func() {}, nil
 	}
-	f, err := os.Create(opt.outputPath)
+	var (
+		f   *os.File
+		err error
+	)
+	if opt.append {
+		f, err = os.OpenFile(opt.outputPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0666)
+	} else {
+		f, err = os.Create(opt.outputPath)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1090,6 +1101,9 @@ func parseArgs(argv []string) (options, []string) {
 		case a == "-w" || a == "--warn":
 			opt.warn = true
 
+		case a == "-a" || a == "--append":
+			opt.append = true
+
 		case a == "-o" || a == "--output":
 			if i+1 >= len(argv) {
 				dief(exitTrouble, "missing argument for %s", a)
@@ -1131,6 +1145,8 @@ func parseArgs(argv []string) (options, []string) {
 						opt.zero = true
 					case 'w':
 						opt.warn = true
+					case 'a':
+						opt.append = true
 					case 'u':
 						opt.forceUTF8 = true
 					case 'l':
