@@ -33,6 +33,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf16"
 	"unicode/utf8"
 
 	whirlpoolhash "github.com/jzelinskie/whirlpool"
@@ -714,6 +715,100 @@ func readRecord(br *bufio.Reader, delim byte) ([]byte, error) {
 	return nil, err
 }
 
+func looksLikeUTF16LE(b []byte) bool {
+	if len(b) < 8 {
+		return false
+	}
+	// Heuristic: for ASCII-ish UTF-16LE text, odd bytes are very often 0x00.
+	n := len(b)
+	if n%2 == 1 {
+		n--
+	}
+	if n < 8 {
+		return false
+	}
+	zerosOdd := 0
+	totalOdd := 0
+	zerosEven := 0
+	totalEven := 0
+	for i := 0; i < n; i++ {
+		if i%2 == 0 {
+			totalEven++
+			if b[i] == 0 {
+				zerosEven++
+			}
+			continue
+		}
+		totalOdd++
+		if b[i] == 0 {
+			zerosOdd++
+		}
+	}
+	// >= 80% of odd bytes are 0x00, and not too many even bytes are 0x00.
+	return zerosOdd*5 >= totalOdd*4 && zerosEven*3 <= totalEven*2
+}
+
+func decodeUTF16LE(b []byte) (string, error) {
+	if len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE {
+		b = b[2:]
+	}
+	if len(b)%2 != 0 {
+		return "", errors.New("invalid UTF-16LE data")
+	}
+	u16 := make([]uint16, 0, len(b)/2)
+	for i := 0; i < len(b); i += 2 {
+		u16 = append(u16, uint16(b[i])|uint16(b[i+1])<<8)
+	}
+	return string(utf16.Decode(u16)), nil
+}
+
+func prepareChecksumListReader(r io.Reader, opt *options) (io.Reader, error) {
+	br := bufio.NewReader(r)
+	peek, perr := br.Peek(64)
+	if perr != nil && perr != io.EOF {
+		return nil, perr
+	}
+
+	// Always support UTF-8 BOM.
+	if len(peek) >= 3 && peek[0] == 0xEF && peek[1] == 0xBB && peek[2] == 0xBF {
+		_, _ = br.Discard(3)
+		return br, nil
+	}
+
+	// When -z/--zero is used, ignore UTF-16LE support.
+	if opt.zero {
+		return br, nil
+	}
+
+	// UTF-16LE BOM.
+	if len(peek) >= 2 && peek[0] == 0xFF && peek[1] == 0xFE {
+		all, err := io.ReadAll(br)
+		if err != nil {
+			return nil, err
+		}
+		s, derr := decodeUTF16LE(all)
+		if derr != nil {
+			return nil, derr
+		}
+		return strings.NewReader(s), nil
+	}
+
+	// Heuristic UTF-16LE (no BOM).
+	if looksLikeUTF16LE(peek) {
+		all, err := io.ReadAll(br)
+		if err != nil {
+			return nil, err
+		}
+		s, derr := decodeUTF16LE(all)
+		if derr != nil {
+			return nil, derr
+		}
+		return strings.NewReader(s), nil
+	}
+
+	return br, nil
+}
+
 func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer) exitCode {
 	sep := lineSep(opt)
 
@@ -763,7 +858,15 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 			continue
 		}
 
-		br := bufio.NewReader(r)
+		rr, rerr := prepareChecksumListReader(r, opt)
+		if rerr != nil {
+			trouble = true
+			writeErr(opt, "%s: %v", lf, rerr)
+			clos()
+			continue
+		}
+
+		br := bufio.NewReader(rr)
 		lineno := 0
 
 		for {
