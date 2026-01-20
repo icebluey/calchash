@@ -12,6 +12,7 @@
 // Important.
 // - A digest option is REQUIRED. There is no default digest.
 // - Whirlpool uses github.com/jzelinskie/whirlpool (x/crypto does not include it).
+// - BLAKE3 uses lukechampine.com/blake3.
 
 package main
 
@@ -37,6 +38,7 @@ import (
 	"unicode/utf8"
 
 	whirlpoolhash "github.com/jzelinskie/whirlpool"
+	"lukechampine.com/blake3"
 
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/crypto/blake2s"
@@ -152,6 +154,14 @@ func supportedDigests() []digestSpec {
 					return nil, err
 				}
 				return &hashDigester{h: h}, nil
+			},
+		},
+		{
+			flagName:  "blake3",
+			tagName:   "BLAKE3",
+			digestLen: 32,
+			newFn: func() (digester, error) {
+				return &hashDigester{h: blake3.New(32, nil)}, nil
 			},
 		},
 		{
@@ -341,13 +351,13 @@ func printVersion(w io.Writer) {
 
 func listDigests(w io.Writer) {
 	fmt.Fprintf(w, "Supported digests:\n")
-	fmt.Fprintf(w, "-blake2b512                -blake2s256                -md4\n")
-	fmt.Fprintf(w, "-md5                       -md5-sha1                  -ripemd\n")
-	fmt.Fprintf(w, "-ripemd160                 -rmd160                    -sha1\n")
-	fmt.Fprintf(w, "-sha224                    -sha256                    -sha3-224\n")
-	fmt.Fprintf(w, "-sha3-256                  -sha3-384                  -sha3-512\n")
-	fmt.Fprintf(w, "-sha384                    -sha512                    -sha512-224\n")
-	fmt.Fprintf(w, "-sha512-256                -whirlpool\n")
+	fmt.Fprintf(w, "-blake2b512                -blake2s256                -blake3\n")
+	fmt.Fprintf(w, "-md4                       -md5                       -md5-sha1\n")
+	fmt.Fprintf(w, "-ripemd                    -ripemd160                 -rmd160\n")
+	fmt.Fprintf(w, "-sha1                      -sha224                    -sha256\n")
+	fmt.Fprintf(w, "-sha3-224                  -sha3-256                  -sha3-384\n")
+	fmt.Fprintf(w, "-sha3-512                  -sha384                    -sha512\n")
+	fmt.Fprintf(w, "-sha512-224                -sha512-256                -whirlpool\n")
 }
 
 func dief(code exitCode, format string, a ...any) {
