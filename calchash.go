@@ -692,6 +692,7 @@ func parseChecksumLine(line string) parsedLine {
 
 func computeFiles(files []string, spec digestSpec, opt *options, out io.Writer) exitCode {
 	sep := lineSep(opt)
+	trouble := false
 
 	for _, name := range files {
 		var r io.Reader
@@ -703,8 +704,15 @@ func computeFiles(files []string, spec digestSpec, opt *options, out io.Writer) 
 		} else {
 			f, err := os.Open(name)
 			if err != nil {
+				trouble = true
 				writeErr(opt, "%s: %v", name, err)
-				return exitTrouble
+				continue
+			}
+			if fi, serr := f.Stat(); serr == nil && fi.IsDir() {
+				_ = f.Close()
+				trouble = true
+				writeErr(opt, "%s: Is a directory", name)
+				continue
 			}
 			r = f
 			clos = func() { _ = f.Close() }
@@ -713,8 +721,9 @@ func computeFiles(files []string, spec digestSpec, opt *options, out io.Writer) 
 		sum, err := digestStream(r, spec, opt)
 		clos()
 		if err != nil {
+			trouble = true
 			writeErr(opt, "%s: %v", name, err)
-			return exitTrouble
+			continue
 		}
 
 		line := formatDigestLine(spec, sum, name, opt)
@@ -722,6 +731,9 @@ func computeFiles(files []string, spec digestSpec, opt *options, out io.Writer) 
 		_, _ = io.WriteString(out, sep)
 	}
 
+	if trouble {
+		return exitTrouble
+	}
 	return exitOK
 }
 
@@ -968,6 +980,12 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 					}
 					trouble = true
 					writeErr(opt, "%s: %v", fn, ferr)
+					continue
+				}
+				if fi, serr := f.Stat(); serr == nil && fi.IsDir() {
+					_ = f.Close()
+					trouble = true
+					writeErr(opt, "%s: Is a directory", fn)
 					continue
 				}
 				fr = f
