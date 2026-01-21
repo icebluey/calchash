@@ -525,8 +525,8 @@ func TestCLIHelpAndVersion(t *testing.T) {
 }
 
 func TestCLIForceUTF8(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("invalid UTF-8 filenames are not portable on Windows")
+	if runtime.GOOS == "windows" || runtime.GOOS == "darwin" {
+		t.Skip("invalid UTF-8 filenames are not portable on this OS")
 	}
 	dir := t.TempDir()
 	name := string([]byte{0xff, 'a'})
