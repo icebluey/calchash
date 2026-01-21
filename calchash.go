@@ -51,8 +51,11 @@ const (
 	progName    = "calchash"
 	progVersion = "1.0.0"
 
-	bufLen = 1 << 16
+	bufLen      = 1 << 16
+	utf16BufLen = 4096
 )
+
+var errInvalidUTF16LE = errors.New("invalid UTF-16LE data")
 
 type exitCode int
 
@@ -130,194 +133,196 @@ type digestSpec struct {
 	newFn     func() (digester, error)
 }
 
-func supportedDigests() []digestSpec {
-	return []digestSpec{
-		{
-			flagName:  "blake2b512",
-			tagName:   "BLAKE2B-512",
-			digestLen: 64,
-			newFn: func() (digester, error) {
-				h, err := blake2b.New512(nil)
-				if err != nil {
-					return nil, err
-				}
-				return &hashDigester{h: h}, nil
-			},
+var digestList = []digestSpec{
+	{
+		flagName:  "blake2b512",
+		tagName:   "BLAKE2B-512",
+		digestLen: 64,
+		newFn: func() (digester, error) {
+			h, err := blake2b.New512(nil)
+			if err != nil {
+				return nil, err
+			}
+			return &hashDigester{h: h}, nil
 		},
-		{
-			flagName:  "blake2s256",
-			tagName:   "BLAKE2S-256",
-			digestLen: 32,
-			newFn: func() (digester, error) {
-				h, err := blake2s.New256(nil)
-				if err != nil {
-					return nil, err
-				}
-				return &hashDigester{h: h}, nil
-			},
+	},
+	{
+		flagName:  "blake2s256",
+		tagName:   "BLAKE2S-256",
+		digestLen: 32,
+		newFn: func() (digester, error) {
+			h, err := blake2s.New256(nil)
+			if err != nil {
+				return nil, err
+			}
+			return &hashDigester{h: h}, nil
 		},
-		{
-			flagName:  "blake3",
-			tagName:   "BLAKE3",
-			digestLen: 32,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: blake3.New(32, nil)}, nil
-			},
+	},
+	{
+		flagName:  "blake3",
+		tagName:   "BLAKE3",
+		digestLen: 32,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: blake3.New(32, nil)}, nil
 		},
-		{
-			flagName:  "md4",
-			tagName:   "MD4",
-			digestLen: 16,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: md4.New()}, nil
-			},
+	},
+	{
+		flagName:  "md4",
+		tagName:   "MD4",
+		digestLen: 16,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: md4.New()}, nil
 		},
-		{
-			flagName:  "md5",
-			tagName:   "MD5",
-			digestLen: 16,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: md5.New()}, nil
-			},
+	},
+	{
+		flagName:  "md5",
+		tagName:   "MD5",
+		digestLen: 16,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: md5.New()}, nil
 		},
-		{
-			flagName:  "md5-sha1",
-			tagName:   "MD5-SHA1",
-			digestLen: md5.Size + sha1.Size,
-			newFn: func() (digester, error) {
-				return &md5sha1Digester{m: md5.New(), s: sha1.New()}, nil
-			},
+	},
+	{
+		flagName:  "md5-sha1",
+		tagName:   "MD5-SHA1",
+		digestLen: md5.Size + sha1.Size,
+		newFn: func() (digester, error) {
+			return &md5sha1Digester{m: md5.New(), s: sha1.New()}, nil
 		},
-		{
-			flagName:  "ripemd",
-			tagName:   "RIPEMD160",
-			digestLen: 20,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: ripemd160.New()}, nil
-			},
+	},
+	{
+		flagName:  "ripemd",
+		tagName:   "RIPEMD160",
+		digestLen: 20,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: ripemd160.New()}, nil
 		},
-		{
-			flagName:  "ripemd160",
-			tagName:   "RIPEMD160",
-			digestLen: 20,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: ripemd160.New()}, nil
-			},
+	},
+	{
+		flagName:  "ripemd160",
+		tagName:   "RIPEMD160",
+		digestLen: 20,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: ripemd160.New()}, nil
 		},
-		{
-			flagName:  "rmd160",
-			tagName:   "RIPEMD160",
-			digestLen: 20,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: ripemd160.New()}, nil
-			},
+	},
+	{
+		flagName:  "rmd160",
+		tagName:   "RIPEMD160",
+		digestLen: 20,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: ripemd160.New()}, nil
 		},
-		{
-			flagName:  "sha1",
-			tagName:   "SHA1",
-			digestLen: 20,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: sha1.New()}, nil
-			},
+	},
+	{
+		flagName:  "sha1",
+		tagName:   "SHA1",
+		digestLen: 20,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: sha1.New()}, nil
 		},
-		{
-			flagName:  "sha224",
-			tagName:   "SHA224",
-			digestLen: 28,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: sha256.New224()}, nil
-			},
+	},
+	{
+		flagName:  "sha224",
+		tagName:   "SHA224",
+		digestLen: 28,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: sha256.New224()}, nil
 		},
-		{
-			flagName:  "sha256",
-			tagName:   "SHA256",
-			digestLen: 32,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: sha256.New()}, nil
-			},
+	},
+	{
+		flagName:  "sha256",
+		tagName:   "SHA256",
+		digestLen: 32,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: sha256.New()}, nil
 		},
-		{
-			flagName:  "sha384",
-			tagName:   "SHA384",
-			digestLen: 48,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: sha512.New384()}, nil
-			},
+	},
+	{
+		flagName:  "sha384",
+		tagName:   "SHA384",
+		digestLen: 48,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: sha512.New384()}, nil
 		},
-		{
-			flagName:  "sha512",
-			tagName:   "SHA512",
-			digestLen: 64,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: sha512.New()}, nil
-			},
+	},
+	{
+		flagName:  "sha512",
+		tagName:   "SHA512",
+		digestLen: 64,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: sha512.New()}, nil
 		},
-		{
-			flagName:  "sha512-224",
-			tagName:   "SHA512-224",
-			digestLen: 28,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: sha512.New512_224()}, nil
-			},
+	},
+	{
+		flagName:  "sha512-224",
+		tagName:   "SHA512-224",
+		digestLen: 28,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: sha512.New512_224()}, nil
 		},
-		{
-			flagName:  "sha512-256",
-			tagName:   "SHA512-256",
-			digestLen: 32,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: sha512.New512_256()}, nil
-			},
+	},
+	{
+		flagName:  "sha512-256",
+		tagName:   "SHA512-256",
+		digestLen: 32,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: sha512.New512_256()}, nil
 		},
-		{
-			flagName:  "sha3-224",
-			tagName:   "SHA3-224",
-			digestLen: 28,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: sha3.New224()}, nil
-			},
+	},
+	{
+		flagName:  "sha3-224",
+		tagName:   "SHA3-224",
+		digestLen: 28,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: sha3.New224()}, nil
 		},
-		{
-			flagName:  "sha3-256",
-			tagName:   "SHA3-256",
-			digestLen: 32,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: sha3.New256()}, nil
-			},
+	},
+	{
+		flagName:  "sha3-256",
+		tagName:   "SHA3-256",
+		digestLen: 32,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: sha3.New256()}, nil
 		},
-		{
-			flagName:  "sha3-384",
-			tagName:   "SHA3-384",
-			digestLen: 48,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: sha3.New384()}, nil
-			},
+	},
+	{
+		flagName:  "sha3-384",
+		tagName:   "SHA3-384",
+		digestLen: 48,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: sha3.New384()}, nil
 		},
-		{
-			flagName:  "sha3-512",
-			tagName:   "SHA3-512",
-			digestLen: 64,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: sha3.New512()}, nil
-			},
+	},
+	{
+		flagName:  "sha3-512",
+		tagName:   "SHA3-512",
+		digestLen: 64,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: sha3.New512()}, nil
 		},
-		{
-			flagName:  "whirlpool",
-			tagName:   "WHIRLPOOL",
-			digestLen: 64,
-			newFn: func() (digester, error) {
-				return &hashDigester{h: whirlpoolhash.New()}, nil
-			},
+	},
+	{
+		flagName:  "whirlpool",
+		tagName:   "WHIRLPOOL",
+		digestLen: 64,
+		newFn: func() (digester, error) {
+			return &hashDigester{h: whirlpoolhash.New()}, nil
 		},
-	}
+	},
 }
 
-func findDigest(name string) (digestSpec, bool) {
-	for _, d := range supportedDigests() {
-		if d.flagName == name {
-			return d, true
-		}
+var digestByFlag = func() map[string]digestSpec {
+	m := make(map[string]digestSpec, len(digestList))
+	for _, d := range digestList {
+		m[d.flagName] = d
 	}
-	return digestSpec{}, false
+	return m
+}()
+
+func findDigest(name string) (digestSpec, bool) {
+	d, ok := digestByFlag[name]
+	return d, ok
 }
 
 func usage(w io.Writer) {
@@ -351,13 +356,27 @@ func printVersion(w io.Writer) {
 
 func listDigests(w io.Writer) {
 	fmt.Fprintf(w, "Supported digests:\n")
-	fmt.Fprintf(w, "-blake2b512                -blake2s256                -blake3\n")
-	fmt.Fprintf(w, "-md4                       -md5                       -md5-sha1\n")
-	fmt.Fprintf(w, "-ripemd                    -ripemd160                 -rmd160\n")
-	fmt.Fprintf(w, "-sha1                      -sha224                    -sha256\n")
-	fmt.Fprintf(w, "-sha3-224                  -sha3-256                  -sha3-384\n")
-	fmt.Fprintf(w, "-sha3-512                  -sha384                    -sha512\n")
-	fmt.Fprintf(w, "-sha512-224                -sha512-256                -whirlpool\n")
+	names := make([]string, len(digestList))
+	maxLen := 0
+	for i, d := range digestList {
+		name := "-" + d.flagName
+		names[i] = name
+		if len(name) > maxLen {
+			maxLen = len(name)
+		}
+	}
+	const cols = 3
+	width := maxLen + 2
+	for i, name := range names {
+		fmt.Fprint(w, name)
+		if (i+1)%cols == 0 || i == len(names)-1 {
+			fmt.Fprint(w, "\n")
+			continue
+		}
+		for pad := len(name); pad < width; pad++ {
+			fmt.Fprint(w, " ")
+		}
+	}
 }
 
 func dief(code exitCode, format string, a ...any) {
@@ -781,18 +800,125 @@ func looksLikeUTF16LE(b []byte) bool {
 	return zerosOdd*5 >= totalOdd*4 && zerosEven*3 <= totalEven*2
 }
 
-func decodeUTF16LE(b []byte) (string, error) {
-	if len(b) >= 2 && b[0] == 0xFF && b[1] == 0xFE {
-		b = b[2:]
+// utf16leReader streams UTF-16LE input and emits UTF-8 bytes.
+type utf16leReader struct {
+	r   io.Reader
+	buf [utf16BufLen]byte
+	out []byte
+
+	err  error
+	done bool
+
+	hasOdd bool
+	odd    byte
+
+	pendingHi uint16
+	bomDone   bool
+}
+
+func newUTF16LEReader(r io.Reader) *utf16leReader {
+	return &utf16leReader{r: r}
+}
+
+func (r *utf16leReader) Read(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
 	}
-	if len(b)%2 != 0 {
-		return "", errors.New("invalid UTF-16LE data")
+	for len(r.out) == 0 {
+		if r.done {
+			if r.hasOdd {
+				return 0, errInvalidUTF16LE
+			}
+			if r.pendingHi != 0 {
+				r.appendRune(utf8.RuneError)
+				r.pendingHi = 0
+				break
+			}
+			if r.err != nil {
+				return 0, r.err
+			}
+			return 0, io.EOF
+		}
+
+		n, err := r.r.Read(r.buf[:])
+		if n == 0 {
+			if err == nil {
+				continue
+			}
+			r.done = true
+			r.err = err
+			continue
+		}
+		if err != nil {
+			r.done = true
+			r.err = err
+		}
+		r.decode(r.buf[:n])
 	}
-	u16 := make([]uint16, 0, len(b)/2)
-	for i := 0; i < len(b); i += 2 {
-		u16 = append(u16, uint16(b[i])|uint16(b[i+1])<<8)
+
+	n := copy(p, r.out)
+	r.out = r.out[n:]
+	if n > 0 {
+		return n, nil
 	}
-	return string(utf16.Decode(u16)), nil
+	if r.err != nil {
+		return 0, r.err
+	}
+	if r.done {
+		return 0, io.EOF
+	}
+	return 0, nil
+}
+
+func (r *utf16leReader) decode(b []byte) {
+	i := 0
+	if r.hasOdd && len(b) > 0 {
+		r.decodeUnit(uint16(r.odd) | uint16(b[0])<<8)
+		r.hasOdd = false
+		i = 1
+	}
+	for ; i+1 < len(b); i += 2 {
+		r.decodeUnit(uint16(b[i]) | uint16(b[i+1])<<8)
+	}
+	if i < len(b) {
+		r.hasOdd = true
+		r.odd = b[i]
+	}
+}
+
+func (r *utf16leReader) decodeUnit(u uint16) {
+	if !r.bomDone {
+		r.bomDone = true
+		if u == 0xFEFF {
+			return
+		}
+	}
+
+	if r.pendingHi != 0 {
+		hi := r.pendingHi
+		r.pendingHi = 0
+		if u >= 0xDC00 && u <= 0xDFFF {
+			r.appendRune(utf16.DecodeRune(rune(hi), rune(u)))
+			return
+		}
+		r.appendRune(utf8.RuneError)
+	}
+
+	if u >= 0xD800 && u <= 0xDBFF {
+		r.pendingHi = u
+		return
+	}
+	if u >= 0xDC00 && u <= 0xDFFF {
+		r.appendRune(utf8.RuneError)
+		return
+	}
+	r.appendRune(rune(u))
+}
+
+func (r *utf16leReader) appendRune(ru rune) {
+	var buf [utf8.UTFMax]byte
+	n := utf8.EncodeRune(buf[:], ru)
+	r.out = append(r.out, buf[:n]...)
 }
 
 func prepareChecksumListReader(r io.Reader, opt *options) (io.Reader, error) {
@@ -815,28 +941,12 @@ func prepareChecksumListReader(r io.Reader, opt *options) (io.Reader, error) {
 
 	// UTF-16LE BOM.
 	if len(peek) >= 2 && peek[0] == 0xFF && peek[1] == 0xFE {
-		all, err := io.ReadAll(br)
-		if err != nil {
-			return nil, err
-		}
-		s, derr := decodeUTF16LE(all)
-		if derr != nil {
-			return nil, derr
-		}
-		return strings.NewReader(s), nil
+		return newUTF16LEReader(br), nil
 	}
 
 	// Heuristic UTF-16LE (no BOM).
 	if looksLikeUTF16LE(peek) {
-		all, err := io.ReadAll(br)
-		if err != nil {
-			return nil, err
-		}
-		s, derr := decodeUTF16LE(all)
-		if derr != nil {
-			return nil, derr
-		}
-		return strings.NewReader(s), nil
+		return newUTF16LEReader(br), nil
 	}
 
 	return br, nil
@@ -1092,6 +1202,9 @@ func parseArgs(argv []string) (options, []string) {
 		}
 
 		if d, ok := isDigest(a); ok {
+			if opt.algoName != "" {
+				dief(exitTrouble, "multiple digest options provided")
+			}
 			opt.algoName = d
 			continue
 		}
@@ -1203,6 +1316,10 @@ func parseArgs(argv []string) (options, []string) {
 
 			dief(exitTrouble, "unknown option: %s", a)
 		}
+	}
+
+	if opt.append && (opt.outputPath == "" || opt.outputPath == "-") {
+		dief(exitTrouble, "append requires -o/--output")
 	}
 
 	return opt, files
