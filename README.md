@@ -110,8 +110,10 @@ When `-z` is used, output lines end with NUL and filenames are not escaped.
 - If no digest flag is provided, only BSD lines are accepted. GNU lines are
   reported as non-BSD and the run exits with a missing-digest error.
 - Lines starting with `#` and blank lines are ignored.
-- In check mode on Windows, a GNU `*` marker forces binary mode for that line;
-  otherwise text mode is used. On non-Windows, text/binary are equivalent.
+- In check mode on Windows, GNU `*` markers force binary mode for that line;
+  otherwise GNU lines use text mode. BSD lines honor the global `-b/-t` flags.
+  On non-Windows, text/binary are equivalent.
+- On Windows, verify BSD lists with the same `-b/-t` used when generating them.
 - UTF-8 BOM is supported. UTF-16LE BOM or heuristic decoding is supported
   unless `-z` is used.
 
@@ -139,4 +141,8 @@ calchash -sha512 -o sums.txt file1.bin file2.bin
 
 # append to an existing output file
 calchash -sha512 -o sums.txt -a file3.bin
+
+# Windows: verify a BSD list generated in binary mode
+calchash -sha256 --tag -b "C:\Program Files\GnuPG\README.txt" -o hash.txt
+calchash -sha256 -b -c hash.txt
 ```

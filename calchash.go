@@ -1142,14 +1142,16 @@ func checkFiles(listFiles []string, spec *digestSpec, opt *options, out io.Write
 				fclos = func() { _ = f.Close() }
 			}
 
-			/* In check mode, honor the line's binary marker on Windows. */
+			/* In check mode, honor GNU binary markers on Windows. */
 			eff := *opt
-			if pl.binary {
-				eff.binary = true
-				eff.text = false
-			} else {
-				eff.binary = false
-				eff.text = true
+			if pl.bsdAlgo == "" {
+				if pl.binary {
+					eff.binary = true
+					eff.text = false
+				} else {
+					eff.binary = false
+					eff.text = true
+				}
 			}
 
 			sum, derr := digestStream(fr, lineSpec, &eff)

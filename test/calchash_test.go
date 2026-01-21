@@ -302,6 +302,68 @@ func TestCLICheckBSD(t *testing.T) {
 	}
 }
 
+func TestCLICheckBSDBinaryRespectsFlag(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows-only text/binary distinction")
+	}
+	dir := t.TempDir()
+	data := []byte("a\r\nb\r\n")
+	writeFile(t, dir, "sample.txt", data)
+
+	res := runCmd(t, dir, "", "-sha256", "--tag", "-b", "sample.txt")
+	if res.exitCode != 0 {
+		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
+	}
+	writeFile(t, dir, "checksums.txt", []byte(res.stdout))
+
+	res = runCmd(t, dir, "", "-sha256", "-b", "-c", "checksums.txt")
+	if res.exitCode != 0 {
+		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
+	}
+	if res.stdout != "sample.txt: OK\n" {
+		t.Fatalf("unexpected stdout: %q", res.stdout)
+	}
+
+	res = runCmd(t, dir, "", "-sha256", "-t", "-c", "checksums.txt")
+	if res.exitCode != exitMismatch {
+		t.Fatalf("expected exit %d, got %d", exitMismatch, res.exitCode)
+	}
+	if !strings.Contains(res.stdout, "sample.txt: FAILED") {
+		t.Fatalf("unexpected stdout: %q", res.stdout)
+	}
+}
+
+func TestCLICheckBSDTextRespectsFlag(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows-only text/binary distinction")
+	}
+	dir := t.TempDir()
+	data := []byte("a\r\nb\r\n")
+	writeFile(t, dir, "sample.txt", data)
+
+	res := runCmd(t, dir, "", "-sha256", "--tag", "-t", "sample.txt")
+	if res.exitCode != 0 {
+		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
+	}
+	writeFile(t, dir, "checksums.txt", []byte(res.stdout))
+
+	res = runCmd(t, dir, "", "-sha256", "-t", "-c", "checksums.txt")
+	if res.exitCode != 0 {
+		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
+	}
+	if res.stdout != "sample.txt: OK\n" {
+		t.Fatalf("unexpected stdout: %q", res.stdout)
+	}
+
+	res = runCmd(t, dir, "", "-sha256", "-b", "-c", "checksums.txt")
+	if res.exitCode != exitMismatch {
+		t.Fatalf("expected exit %d, got %d", exitMismatch, res.exitCode)
+	}
+	if !strings.Contains(res.stdout, "sample.txt: FAILED") {
+		t.Fatalf("unexpected stdout: %q", res.stdout)
+	}
+}
+
 func TestCLICheckUTF8BOM(t *testing.T) {
 	dir := t.TempDir()
 	data := []byte("hello\n")
