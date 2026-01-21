@@ -887,6 +887,9 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 		r, clos, err := openList(lf)
 		if err != nil {
 			trouble = true
+			if pe, ok := err.(*os.PathError); ok {
+				err = pe.Err
+			}
 			writeErr(opt, "%s: %v", lf, err)
 			continue
 		}
@@ -979,6 +982,9 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 						continue
 					}
 					trouble = true
+					if pe, ok := ferr.(*os.PathError); ok {
+						ferr = pe.Err
+					}
 					writeErr(opt, "%s: %v", fn, ferr)
 					continue
 				}
