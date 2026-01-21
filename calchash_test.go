@@ -42,6 +42,9 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	bin := filepath.Join(tmpDir, "calchash")
+	if runtime.GOOS == "windows" {
+		bin += ".exe"
+	}
 	cmd := exec.Command("go", "build", "-trimpath", "-ldflags", "-s -w", "-o", bin, ".")
 	cmd.Dir = wd
 	var stderr bytes.Buffer
@@ -52,11 +55,6 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	testBin = bin
-	if runtime.GOOS == "windows" {
-		if _, err := os.Stat(bin + ".exe"); err == nil {
-			testBin = bin + ".exe"
-		}
-	}
 	if _, err := os.Stat(testBin); err != nil {
 		fmt.Fprintf(os.Stderr, "binary not found: %v\n", err)
 		_ = os.RemoveAll(tmpDir)
