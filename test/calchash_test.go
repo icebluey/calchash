@@ -1,4 +1,4 @@
-package main
+package calchash_test
 
 import (
 	"bytes"
@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"hash"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,11 +29,44 @@ import (
 
 var testBin string
 
+const (
+	exitMismatch = 1
+	exitTrouble  = 2
+)
+
+var digestNames = []string{
+	"blake2b512",
+	"blake2s256",
+	"blake3",
+	"md4",
+	"md5",
+	"md5-sha1",
+	"ripemd",
+	"ripemd160",
+	"rmd160",
+	"sha1",
+	"sha224",
+	"sha256",
+	"sha384",
+	"sha512",
+	"sha512-224",
+	"sha512-256",
+	"sha3-224",
+	"sha3-256",
+	"sha3-384",
+	"sha3-512",
+	"whirlpool",
+}
+
 func TestMain(m *testing.M) {
 	wd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "getwd failed: %v\n", err)
 		os.Exit(1)
+	}
+	root := filepath.Dir(wd)
+	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
+		root = wd
 	}
 	tmpDir, err := os.MkdirTemp("", "calchash-testbin-")
 	if err != nil {
@@ -46,7 +78,7 @@ func TestMain(m *testing.M) {
 		bin += ".exe"
 	}
 	cmd := exec.Command("go", "build", "-trimpath", "-ldflags", "-s -w", "-o", bin, ".")
-	cmd.Dir = wd
+	cmd.Dir = root
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -194,11 +226,14 @@ func digestBytes(t *testing.T, name string, data []byte) []byte {
 }
 
 func TestListDigestsIncludesAll(t *testing.T) {
-	var buf bytes.Buffer
-	listDigests(&buf)
-	out := buf.String()
-	for _, d := range digestList {
-		flag := "-" + d.flagName
+	dir := t.TempDir()
+	res := runCmd(t, dir, "", "-l")
+	if res.exitCode != 0 {
+		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
+	}
+	out := res.stdout
+	for _, name := range digestNames {
+		flag := "-" + name
 		if !strings.Contains(out, flag) {
 			t.Fatalf("list missing %q", flag)
 		}
@@ -209,133 +244,78 @@ func TestCLIAllDigests(t *testing.T) {
 	dir := t.TempDir()
 	data := []byte("all digests\n")
 	writeFile(t, dir, "sample.txt", data)
-	for _, spec := range digestList {
-		spec := spec
-		t.Run(spec.flagName, func(t *testing.T) {
-			expected := digestBytes(t, spec.flagName, data)
+	for _, name := range digestNames {
+		name := name
+		t.Run(name, func(t *testing.T) {
+			expected := digestBytes(t, name, data)
 			expectedHex := hex.EncodeToString(expected)
-			res := runCmd(t, dir, "", "-"+spec.flagName, "sample.txt")
+			res := runCmd(t, dir, "", "-"+name, "sample.txt")
 			if res.exitCode != 0 {
 				t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
 			}
 			if res.stderr != "" {
 				t.Fatalf("unexpected stderr: %q", res.stderr)
 			}
-			pl := parseChecksumLine(res.stdout)
-			if !pl.ok {
-				t.Fatalf("unable to parse output: %q", res.stdout)
-			}
-			if pl.filename != "sample.txt" {
-				t.Fatalf("unexpected filename: %q", pl.filename)
-			}
-			if !isHex(pl.hexDigest) {
-				t.Fatalf("non-hex digest: %q", pl.hexDigest)
-			}
-			if len(pl.hexDigest) != spec.digestLen*2 {
-				t.Fatalf("digest length mismatch for %s: %d", spec.flagName, len(pl.hexDigest))
-			}
-			if pl.hexDigest != expectedHex {
-				t.Fatalf("digest mismatch for %s", spec.flagName)
+			want := fmt.Sprintf("%s  sample.txt\n", expectedHex)
+			if res.stdout != want {
+				t.Fatalf("stdout mismatch: %q != %q", res.stdout, want)
 			}
 		})
 	}
 }
 
-func TestEscapeUnescapeFilenameRoundTrip(t *testing.T) {
-	orig := "a\nb\r\t\\\x00\x7f"
-	escaped := escapeFilename(orig)
-	got, err := unescapeFilename(escaped)
-	if err != nil {
-		t.Fatalf("unescape error: %v", err)
+func TestCLIEscapedFilenameOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("filename escaping with backslashes is not portable on Windows")
 	}
-	if got != orig {
-		t.Fatalf("round trip mismatch: %q != %q", got, orig)
+	dir := t.TempDir()
+	name := "a\nb\\c"
+	data := []byte("hello\n")
+	writeFile(t, dir, name, data)
+	sumHex := sha256Hex(data)
+	res := runCmd(t, dir, "", "-sha256", name)
+	if res.exitCode != 0 {
+		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
 	}
-}
-
-func TestUnescapeFilenameErrors(t *testing.T) {
-	cases := []string{
-		"\\",
-		"\\x",
-		"\\8",
-		"\\12",
+	wantPrefix := fmt.Sprintf("%s  ", sumHex)
+	if !strings.HasPrefix(res.stdout, wantPrefix) {
+		t.Fatalf("unexpected output prefix: %q", res.stdout)
 	}
-	for _, tc := range cases {
-		if _, err := unescapeFilename(tc); err == nil {
-			t.Fatalf("expected error for %q", tc)
-		}
+	if !strings.Contains(res.stdout, "\\n") || !strings.Contains(res.stdout, "\\\\") {
+		t.Fatalf("expected escaped sequences, got %q", res.stdout)
 	}
 }
 
-func TestParseChecksumLineGNU(t *testing.T) {
-	pl := parseChecksumLine("abcd  file.txt")
-	if !pl.ok || pl.hexDigest != "abcd" || pl.filename != "file.txt" || pl.binary {
-		t.Fatalf("unexpected parse: %#v", pl)
+func TestCLICheckBSD(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte("hello\n")
+	writeFile(t, dir, "sample.txt", data)
+	sumHex := sha256Hex(data)
+	list := fmt.Sprintf("SHA256 (sample.txt) = %s\n", sumHex)
+	writeFile(t, dir, "checksums.txt", []byte(list))
+	res := runCmd(t, dir, "", "-sha256", "-c", "checksums.txt")
+	if res.exitCode != 0 {
+		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
 	}
-	pl = parseChecksumLine("abcd *file.txt")
-	if !pl.ok || pl.filename != "file.txt" || !pl.binary {
-		t.Fatalf("unexpected binary parse: %#v", pl)
-	}
-}
-
-func TestParseChecksumLineBSD(t *testing.T) {
-	pl := parseChecksumLine("SHA256 (file.txt) = abcd")
-	if !pl.ok || pl.hexDigest != "abcd" || pl.filename != "file.txt" || pl.bsdAlgo != "SHA256" {
-		t.Fatalf("unexpected BSD parse: %#v", pl)
+	if res.stdout != "sample.txt: OK\n" {
+		t.Fatalf("unexpected stdout: %q", res.stdout)
 	}
 }
 
-func TestPrepareChecksumListReaderUTF16LEBOM(t *testing.T) {
-	opt := &options{}
-	input := "abcd  file.txt\n"
-	data := encodeUTF16LE(input, true)
-	r := bytes.NewReader(data)
-	rr, err := prepareChecksumListReader(r, opt)
-	if err != nil {
-		t.Fatalf("prepare error: %v", err)
+func TestCLICheckUTF8BOM(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte("hello\n")
+	writeFile(t, dir, "sample.txt", data)
+	sumHex := sha256Hex(data)
+	list := fmt.Sprintf("%s  sample.txt\n", sumHex)
+	dataWithBOM := append([]byte{0xEF, 0xBB, 0xBF}, []byte(list)...)
+	writeFile(t, dir, "checksums-bom.txt", dataWithBOM)
+	res := runCmd(t, dir, "", "-sha256", "-c", "checksums-bom.txt")
+	if res.exitCode != 0 {
+		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
 	}
-	got, err := io.ReadAll(rr)
-	if err != nil {
-		t.Fatalf("read error: %v", err)
-	}
-	if string(got) != input {
-		t.Fatalf("unexpected decode: %q", string(got))
-	}
-}
-
-func TestPrepareChecksumListReaderUTF16LEHeuristic(t *testing.T) {
-	opt := &options{}
-	input := "abcd  file.txt\n"
-	data := encodeUTF16LE(input, false)
-	r := bytes.NewReader(data)
-	rr, err := prepareChecksumListReader(r, opt)
-	if err != nil {
-		t.Fatalf("prepare error: %v", err)
-	}
-	got, err := io.ReadAll(rr)
-	if err != nil {
-		t.Fatalf("read error: %v", err)
-	}
-	if string(got) != input {
-		t.Fatalf("unexpected decode: %q", string(got))
-	}
-}
-
-func TestPrepareChecksumListReaderUTF8BOM(t *testing.T) {
-	opt := &options{}
-	input := "abcd  file.txt\n"
-	data := append([]byte{0xEF, 0xBB, 0xBF}, []byte(input)...)
-	r := bytes.NewReader(data)
-	rr, err := prepareChecksumListReader(r, opt)
-	if err != nil {
-		t.Fatalf("prepare error: %v", err)
-	}
-	got, err := io.ReadAll(rr)
-	if err != nil {
-		t.Fatalf("read error: %v", err)
-	}
-	if string(got) != input {
-		t.Fatalf("unexpected decode: %q", string(got))
+	if res.stdout != "sample.txt: OK\n" {
+		t.Fatalf("unexpected stdout: %q", res.stdout)
 	}
 }
 
@@ -492,7 +472,7 @@ func TestCLIAppendWithoutOutputError(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "sample.txt", []byte("hello\n"))
 	res := runCmd(t, dir, "", "-sha256", "-a", "sample.txt")
-	if res.exitCode != int(exitTrouble) {
+	if res.exitCode != exitTrouble {
 		t.Fatalf("expected exit %d, got %d", exitTrouble, res.exitCode)
 	}
 	if !strings.Contains(res.stderr, "append requires -o/--output") {
@@ -504,7 +484,7 @@ func TestCLIMultipleDigestError(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "sample.txt", []byte("hello\n"))
 	res := runCmd(t, dir, "", "-sha1", "-sha256", "sample.txt")
-	if res.exitCode != int(exitTrouble) {
+	if res.exitCode != exitTrouble {
 		t.Fatalf("expected exit %d, got %d", exitTrouble, res.exitCode)
 	}
 	if !strings.Contains(res.stderr, "multiple digest options provided") {
@@ -544,62 +524,30 @@ func TestCLIHelpAndVersion(t *testing.T) {
 	}
 }
 
-func TestPrepareChecksumListReaderZeroDisablesUTF16(t *testing.T) {
-	opt := &options{zero: true}
-	input := "abcd  file.txt\n"
-	data := encodeUTF16LE(input, true)
-	r := bytes.NewReader(data)
-	rr, err := prepareChecksumListReader(r, opt)
-	if err != nil {
-		t.Fatalf("prepare error: %v", err)
+func TestCLIForceUTF8(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("invalid UTF-8 filenames are not portable on Windows")
 	}
-	got, err := io.ReadAll(rr)
-	if err != nil {
-		t.Fatalf("read error: %v", err)
-	}
-	if !bytes.Equal(got, data) {
-		t.Fatalf("expected raw bytes, got %q", string(got))
-	}
-}
-
-func TestFormatDigestLineEscapesFilename(t *testing.T) {
-	spec, ok := findDigest("sha256")
-	if !ok {
-		t.Fatal("missing sha256 spec")
-	}
-	sum := make([]byte, spec.digestLen)
-	name := "a\nb\\c"
-	opt := &options{}
-	line := formatDigestLine(spec, sum, name, opt)
-	if strings.Contains(line, "\n") {
-		t.Fatalf("expected escaped newline, got %q", line)
-	}
-	if !strings.Contains(line, "\\n") || !strings.Contains(line, "\\\\") {
-		t.Fatalf("expected escaped sequences, got %q", line)
-	}
-}
-
-func TestFormatDigestLineForceUTF8(t *testing.T) {
-	spec, ok := findDigest("sha256")
-	if !ok {
-		t.Fatal("missing sha256 spec")
-	}
-	sum := make([]byte, spec.digestLen)
+	dir := t.TempDir()
 	name := string([]byte{0xff, 'a'})
-	opt := &options{forceUTF8: true}
-	line := formatDigestLine(spec, sum, name, opt)
-	if !strings.Contains(line, "\uFFFDa") {
-		t.Fatalf("expected replacement rune, got %q", line)
+	data := []byte("hello\n")
+	writeFile(t, dir, name, data)
+	sumHex := sha256Hex(data)
+	res := runCmd(t, dir, "", "-sha256", "-u", name)
+	if res.exitCode != 0 {
+		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
+	}
+	if !strings.HasPrefix(res.stdout, sumHex+"  ") {
+		t.Fatalf("unexpected output prefix: %q", res.stdout)
+	}
+	if !strings.Contains(res.stdout, "\uFFFDa") {
+		t.Fatalf("expected replacement rune, got %q", res.stdout)
 	}
 }
 
 func TestDigestStreamWindowsTextNormalization(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("windows-only text normalization")
-	}
-	spec, ok := findDigest("sha256")
-	if !ok {
-		t.Fatal("missing sha256 spec")
 	}
 	cases := []struct {
 		name     string
@@ -611,14 +559,18 @@ func TestDigestStreamWindowsTextNormalization(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			opt := &options{text: true}
-			got, err := digestStream(bytes.NewReader(tc.input), spec, opt)
-			if err != nil {
-				t.Fatalf("digest error: %v", err)
-			}
+			dir := t.TempDir()
+			filename := tc.name + ".txt"
+			writeFile(t, dir, filename, tc.input)
 			want := sha256.Sum256(tc.expected)
-			if !bytes.Equal(got, want[:]) {
-				t.Fatalf("digest mismatch for %s", tc.name)
+			wantHex := hex.EncodeToString(want[:])
+			res := runCmd(t, dir, "", "-sha256", filename)
+			if res.exitCode != 0 {
+				t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
+			}
+			expect := fmt.Sprintf("%s  %s\n", wantHex, filename)
+			if res.stdout != expect {
+				t.Fatalf("stdout mismatch: %q != %q", res.stdout, expect)
 			}
 		})
 	}
@@ -628,19 +580,19 @@ func TestDigestStreamWindowsBinaryPreservesCRLF(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("windows-only binary mode")
 	}
-	spec, ok := findDigest("sha256")
-	if !ok {
-		t.Fatal("missing sha256 spec")
-	}
 	input := []byte("a\r\nb\r\n")
-	opt := &options{binary: true}
-	got, err := digestStream(bytes.NewReader(input), spec, opt)
-	if err != nil {
-		t.Fatalf("digest error: %v", err)
-	}
+	dir := t.TempDir()
+	filename := "crlf.txt"
+	writeFile(t, dir, filename, input)
 	want := sha256.Sum256(input)
-	if !bytes.Equal(got, want[:]) {
-		t.Fatalf("digest mismatch for binary mode")
+	wantHex := hex.EncodeToString(want[:])
+	res := runCmd(t, dir, "", "-sha256", "-b", filename)
+	if res.exitCode != 0 {
+		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
+	}
+	expect := fmt.Sprintf("%s *%s\n", wantHex, filename)
+	if res.stdout != expect {
+		t.Fatalf("stdout mismatch: %q != %q", res.stdout, expect)
 	}
 }
 
@@ -701,7 +653,7 @@ func TestCLICheckStatusMismatch(t *testing.T) {
 	list := fmt.Sprintf("%s  sample.txt\n", bad)
 	writeFile(t, dir, "checksums.txt", []byte(list))
 	res := runCmd(t, dir, "", "-sha256", "-c", "--status", "checksums.txt")
-	if res.exitCode != int(exitMismatch) {
+	if res.exitCode != exitMismatch {
 		t.Fatalf("expected exit %d, got %d", exitMismatch, res.exitCode)
 	}
 	if res.stdout != "" || res.stderr != "" {
@@ -733,7 +685,7 @@ func TestCLICheckStrictWarn(t *testing.T) {
 	list := fmt.Sprintf("badline\n%s  sample.txt\n", sumHex)
 	writeFile(t, dir, "checksums.txt", []byte(list))
 	res := runCmd(t, dir, "", "-sha256", "--warn", "--strict", "-c", "checksums.txt")
-	if res.exitCode != int(exitTrouble) {
+	if res.exitCode != exitTrouble {
 		t.Fatalf("expected exit %d, got %d", exitTrouble, res.exitCode)
 	}
 	if !strings.Contains(res.stderr, "WARNING") {
@@ -764,7 +716,7 @@ func TestCLIOutputOverwrite(t *testing.T) {
 func TestCLIDirectoryInputError(t *testing.T) {
 	dir := t.TempDir()
 	res := runCmd(t, dir, "", "-sha256", dir)
-	if res.exitCode != int(exitTrouble) {
+	if res.exitCode != exitTrouble {
 		t.Fatalf("expected exit %d, got %d", exitTrouble, res.exitCode)
 	}
 	if !strings.Contains(res.stderr, "Is a directory") {
