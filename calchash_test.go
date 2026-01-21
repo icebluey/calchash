@@ -53,11 +53,14 @@ func TestMain(m *testing.M) {
 	}
 	testBin = bin
 	if runtime.GOOS == "windows" {
-		if _, err := os.Stat(bin); err != nil {
-			if _, err := os.Stat(bin + ".exe"); err == nil {
-				testBin = bin + ".exe"
-			}
+		if _, err := os.Stat(bin + ".exe"); err == nil {
+			testBin = bin + ".exe"
 		}
+	}
+	if _, err := os.Stat(testBin); err != nil {
+		fmt.Fprintf(os.Stderr, "binary not found: %v\n", err)
+		_ = os.RemoveAll(tmpDir)
+		os.Exit(1)
 	}
 	code := m.Run()
 	_ = os.RemoveAll(tmpDir)
