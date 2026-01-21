@@ -319,6 +319,82 @@ func TestCLICheckUTF8BOM(t *testing.T) {
 	}
 }
 
+func TestCLICheckAutoBSD(t *testing.T) {
+	dir := t.TempDir()
+	entries := []struct {
+		algo string
+		tag  string
+		name string
+		data []byte
+	}{
+		{"sha1", "SHA1", "one.log", []byte("one\n")},
+		{"sha256", "SHA256", "two.log", []byte("two\n")},
+		{"blake2b512", "BLAKE2B-512", "three.log", []byte("three\n")},
+	}
+	var list strings.Builder
+	for _, e := range entries {
+		writeFile(t, dir, e.name, e.data)
+		sum := digestBytes(t, e.algo, e.data)
+		list.WriteString(fmt.Sprintf("%s (%s) = %s\n", e.tag, e.name, hex.EncodeToString(sum)))
+	}
+	writeFile(t, dir, "checksums.txt", []byte(list.String()))
+
+	res := runCmd(t, dir, "", "-c", "checksums.txt")
+	if res.exitCode != 0 {
+		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
+	}
+	var want strings.Builder
+	for _, e := range entries {
+		want.WriteString(fmt.Sprintf("%s: OK\n", e.name))
+	}
+	if res.stdout != want.String() {
+		t.Fatalf("unexpected stdout: %q", res.stdout)
+	}
+}
+
+func TestCLICheckAutoBSDContinuesAfterBadLine(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte("ok\n")
+	writeFile(t, dir, "good.log", data)
+	sum := digestBytes(t, "sha1", data)
+	list := fmt.Sprintf("NOPE (bad.log) = %s\nSHA1 (good.log) = %s\n",
+		hex.EncodeToString(sum), hex.EncodeToString(sum))
+	writeFile(t, dir, "checksums.txt", []byte(list))
+
+	res := runCmd(t, dir, "", "-c", "checksums.txt")
+	if res.exitCode != 0 {
+		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
+	}
+	if res.stdout != "good.log: OK\n" {
+		t.Fatalf("unexpected stdout: %q", res.stdout)
+	}
+	if !strings.Contains(res.stderr, "WARNING: 1 line is improperly formatted") {
+		t.Fatalf("expected warning, got %q", res.stderr)
+	}
+}
+
+func TestCLICheckMissingDigestOptionForGNUList(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte("hello\n")
+	writeFile(t, dir, "one.log", data)
+	writeFile(t, dir, "two.log", data)
+	sha1Hex := hex.EncodeToString(digestBytes(t, "sha1", data))
+	sha256Hex := hex.EncodeToString(digestBytes(t, "sha256", data))
+	list := fmt.Sprintf("%s  one.log\n%s  two.log\n", sha1Hex, sha256Hex)
+	writeFile(t, dir, "checksums.txt", []byte(list))
+
+	res := runCmd(t, dir, "", "-c", "checksums.txt")
+	if res.exitCode != exitTrouble {
+		t.Fatalf("expected exit %d, got %d", exitTrouble, res.exitCode)
+	}
+	if !strings.Contains(res.stderr, "non BSD-style checksum") {
+		t.Fatalf("expected non-BSD warning, got %q", res.stderr)
+	}
+	if !strings.Contains(res.stderr, "missing digest option") {
+		t.Fatalf("expected missing digest message, got %q", res.stderr)
+	}
+}
+
 func TestCLIComputeSHA256(t *testing.T) {
 	dir := t.TempDir()
 	data := []byte("hello\n")

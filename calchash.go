@@ -325,11 +325,20 @@ func findDigest(name string) (digestSpec, bool) {
 	return d, ok
 }
 
+func findDigestByTagName(name string) (digestSpec, bool) {
+	for _, d := range digestList {
+		if strings.EqualFold(name, d.tagName) || strings.EqualFold(name, d.flagName) {
+			return d, true
+		}
+	}
+	return digestSpec{}, false
+}
+
 func usage(w io.Writer) {
 	fmt.Fprintf(w, "Usage: %s [OPTION]... [FILE]...\n", progName)
 	fmt.Fprintf(w, "\nWith no FILE, or when FILE is -, read standard input.\n\n")
 	fmt.Fprintf(w, "  -b, --binary         read in binary mode\n")
-	fmt.Fprintf(w, "  -c, --check          read SHA256 sums from the FILEs and check them\n")
+	fmt.Fprintf(w, "  -c, --check          read checksum lists from the FILEs and check them\n")
 	fmt.Fprintf(w, "      --tag            create a BSD-style checksum\n")
 	fmt.Fprintf(w, "  -t, --text           read in text mode (default)\n")
 	fmt.Fprintf(w, "  -z, --zero           end each output line with NUL, not newline,\n")
@@ -346,7 +355,8 @@ func usage(w io.Writer) {
 	fmt.Fprintf(w, "  -l, --list           list supported digests\n")
 	fmt.Fprintf(w, "  -h, --help           display this help and exit\n")
 	fmt.Fprintf(w, "  -v, --version        output version information and exit\n\n")
-	fmt.Fprintf(w, "The digest algorithm must be specified (e.g., -sha256, -sha1).\n")
+	fmt.Fprintf(w, "The digest algorithm must be specified (e.g., -sha256),\n")
+	fmt.Fprintf(w, "unless -c is used with BSD-style \"ALGO (file) = digest\" lines.\n")
 	fmt.Fprintf(w, "Use -l or --list to see all supported algorithms.\n")
 }
 
@@ -952,7 +962,7 @@ func prepareChecksumListReader(r io.Reader, opt *options) (io.Reader, error) {
 	return br, nil
 }
 
-func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer) exitCode {
+func checkFiles(listFiles []string, spec *digestSpec, opt *options, out io.Writer) exitCode {
 	sep := lineSep(opt)
 
 	delim := byte('\n')
@@ -960,12 +970,11 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 		delim = 0
 	}
 
-	wantLen := spec.digestLen * 2
-
 	var badLine bool
 	var mismatchCount int
 	var trouble bool
 	var goodLine bool
+	var sawNonBSD bool
 
 	report := func(s string) {
 		if opt.status {
@@ -993,6 +1002,14 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 		return f, func() { _ = f.Close() }, nil
 	}
 
+	var defaultSpec *digestSpec
+	if spec != nil {
+		ds := *spec
+		defaultSpec = &ds
+	}
+
+	autoMode := defaultSpec == nil
+
 	for _, lf := range listFiles {
 		r, clos, err := openList(lf)
 		if err != nil {
@@ -1015,6 +1032,7 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 		br := bufio.NewReader(rr)
 		fileReadErr := false
 		goodLineThisFile := false
+		sawNonBSDThisFile := false
 		badLineThisFile := 0
 		lineno := 0
 
@@ -1042,21 +1060,37 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 				continue
 			}
 
-			if pl.bsdAlgo != "" && !strings.EqualFold(pl.bsdAlgo, spec.tagName) {
+			if autoMode && pl.bsdAlgo == "" {
+				sawNonBSDThisFile = true
+			}
+
+			var lineSpec digestSpec
+			var ok bool
+			if pl.bsdAlgo != "" {
+				lineSpec, ok = findDigestByTagName(pl.bsdAlgo)
+				if !ok {
+					badLine = true
+					badLineThisFile++
+					warnf("%s:%d: unknown algorithm %q", lf, lineno, pl.bsdAlgo)
+					continue
+				}
+			} else if defaultSpec != nil {
+				lineSpec = *defaultSpec
+			} else {
 				badLine = true
 				badLineThisFile++
-				warnf("%s:%d: algorithm mismatch (got %q, expected %q)",
-					lf, lineno, pl.bsdAlgo, spec.tagName)
+				warnf("%s:%d: missing algorithm in checksum line", lf, lineno)
 				continue
 			}
 
 			dh := strings.TrimSpace(pl.hexDigest)
 			fn := pl.filename
 
+			wantLen := lineSpec.digestLen * 2
 			if !isHex(dh) || len(dh) != wantLen {
 				badLine = true
 				badLineThisFile++
-				warnf("%s:%d: invalid %s digest", lf, lineno, spec.tagName)
+				warnf("%s:%d: invalid %s digest", lf, lineno, lineSpec.tagName)
 				continue
 			}
 
@@ -1118,7 +1152,7 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 				eff.text = true
 			}
 
-			sum, derr := digestStream(fr, spec, &eff)
+			sum, derr := digestStream(fr, lineSpec, &eff)
 			fclos()
 			if derr != nil {
 				trouble = true
@@ -1147,7 +1181,17 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 
 		if !goodLineThisFile && !fileReadErr {
 			trouble = true
-			writeErr(opt, "%s: no properly formatted %s checksum lines found", lf, spec.tagName)
+			if defaultSpec != nil {
+				writeErr(opt, "%s: no properly formatted %s checksum lines found", lf, defaultSpec.tagName)
+			} else if sawNonBSDThisFile {
+				writeErr(opt, "%s: non BSD-style checksum line(s) found", lf)
+			} else {
+				writeErr(opt, "%s: no BSD-style checksum lines found", lf)
+			}
+		}
+
+		if sawNonBSDThisFile {
+			sawNonBSD = true
 		}
 
 		clos()
@@ -1158,6 +1202,11 @@ func checkFiles(listFiles []string, spec digestSpec, opt *options, out io.Writer
 	}
 
 	if opt.strict && !goodLine {
+		return exitTrouble
+	}
+
+	if autoMode && !goodLine && sawNonBSD {
+		writeErr(opt, "missing digest option, use -l to list supported digests")
 		return exitTrouble
 	}
 
@@ -1329,6 +1378,9 @@ func requireDigest(opt *options) {
 	if opt.algoName != "" {
 		return
 	}
+	if opt.check {
+		return
+	}
 	dief(exitTrouble, "missing digest option, use -l to list supported digests")
 }
 
@@ -1352,9 +1404,13 @@ func main() {
 
 	requireDigest(&opt)
 
-	spec, ok := findDigest(opt.algoName)
-	if !ok {
-		dief(exitTrouble, "unsupported digest: %s", opt.algoName)
+	var spec *digestSpec
+	if opt.algoName != "" {
+		s, ok := findDigest(opt.algoName)
+		if !ok {
+			dief(exitTrouble, "unsupported digest: %s", opt.algoName)
+		}
+		spec = &s
 	}
 
 	out, clos, err := openOutput(&opt)
@@ -1376,6 +1432,8 @@ func main() {
 	if len(args) == 0 {
 		args = []string{"-"}
 	}
-
-	os.Exit(int(computeFiles(args, spec, &opt, out)))
+	if spec == nil {
+		dief(exitTrouble, "missing digest option, use -l to list supported digests")
+	}
+	os.Exit(int(computeFiles(args, *spec, &opt, out)))
 }
