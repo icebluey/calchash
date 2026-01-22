@@ -1230,7 +1230,13 @@ func parseArgs(argv []string) (options, []string) {
 	var opt options
 	var files []string
 
-	opt.text = true
+	// Windows defaults to binary mode, other platforms default to text mode
+	if runtime.GOOS == "windows" {
+		opt.binary = true
+		opt.text = false
+	} else {
+		opt.text = true
+	}
 
 	isDigest := func(a string) (string, bool) {
 		if strings.HasPrefix(a, "--") {
