@@ -256,7 +256,13 @@ func TestCLIAllDigests(t *testing.T) {
 			if res.stderr != "" {
 				t.Fatalf("unexpected stderr: %q", res.stderr)
 			}
-			want := fmt.Sprintf("%s  sample.txt\n", expectedHex)
+			// Windows defaults to binary mode (asterisk marker)
+			var want string
+			if runtime.GOOS == "windows" {
+				want = fmt.Sprintf("%s *sample.txt\n", expectedHex)
+			} else {
+				want = fmt.Sprintf("%s  sample.txt\n", expectedHex)
+			}
 			if res.stdout != want {
 				t.Fatalf("stdout mismatch: %q != %q", res.stdout, want)
 			}
@@ -466,7 +472,13 @@ func TestCLIComputeSHA256(t *testing.T) {
 	if res.exitCode != 0 {
 		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
 	}
-	want := fmt.Sprintf("%s  sample.txt\n", sumHex)
+	// Windows defaults to binary mode (asterisk marker)
+	var want string
+	if runtime.GOOS == "windows" {
+		want = fmt.Sprintf("%s *sample.txt\n", sumHex)
+	} else {
+		want = fmt.Sprintf("%s  sample.txt\n", sumHex)
+	}
 	if res.stdout != want {
 		t.Fatalf("stdout mismatch: %q != %q", res.stdout, want)
 	}
@@ -502,7 +514,13 @@ func TestCLIZeroOutput(t *testing.T) {
 	writeFile(t, dir, "sample.txt", data)
 	sumHex := sha256Hex(data)
 	res := runCmd(t, dir, "", "-sha256", "-z", "sample.txt")
-	want := fmt.Sprintf("%s  sample.txt\x00", sumHex)
+	// Windows defaults to binary mode (asterisk marker)
+	var want string
+	if runtime.GOOS == "windows" {
+		want = fmt.Sprintf("%s *sample.txt\x00", sumHex)
+	} else {
+		want = fmt.Sprintf("%s  sample.txt\x00", sumHex)
+	}
 	if res.stdout != want {
 		t.Fatalf("stdout mismatch: %q != %q", res.stdout, want)
 	}
@@ -600,7 +618,13 @@ func TestCLIAppendOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read output: %v", err)
 	}
-	want := fmt.Sprintf("header\n%s  sample.txt\n", sumHex)
+	// Windows defaults to binary mode (asterisk marker)
+	var want string
+	if runtime.GOOS == "windows" {
+		want = fmt.Sprintf("header\n%s *sample.txt\n", sumHex)
+	} else {
+		want = fmt.Sprintf("header\n%s  sample.txt\n", sumHex)
+	}
 	if string(got) != want {
 		t.Fatalf("output mismatch: %q != %q", string(got), want)
 	}
@@ -702,7 +726,7 @@ func TestDigestStreamWindowsTextNormalization(t *testing.T) {
 			writeFile(t, dir, filename, tc.input)
 			want := sha256.Sum256(tc.expected)
 			wantHex := hex.EncodeToString(want[:])
-			res := runCmd(t, dir, "", "-sha256", filename)
+			res := runCmd(t, dir, "", "-sha256", "-t", filename)
 			if res.exitCode != 0 {
 				t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
 			}
@@ -742,7 +766,13 @@ func TestCLIComputeFromStdinDefault(t *testing.T) {
 	if res.exitCode != 0 {
 		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
 	}
-	want := fmt.Sprintf("%s  -\n", sumHex)
+	// Windows defaults to binary mode (asterisk marker)
+	var want string
+	if runtime.GOOS == "windows" {
+		want = fmt.Sprintf("%s *-\n", sumHex)
+	} else {
+		want = fmt.Sprintf("%s  -\n", sumHex)
+	}
 	if res.stdout != want {
 		t.Fatalf("stdout mismatch: %q != %q", res.stdout, want)
 	}
@@ -756,7 +786,13 @@ func TestCLIComputeFromStdinDash(t *testing.T) {
 	if res.exitCode != 0 {
 		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
 	}
-	want := fmt.Sprintf("%s  -\n", sumHex)
+	// Windows defaults to binary mode (asterisk marker)
+	var want string
+	if runtime.GOOS == "windows" {
+		want = fmt.Sprintf("%s *-\n", sumHex)
+	} else {
+		want = fmt.Sprintf("%s  -\n", sumHex)
+	}
 	if res.stdout != want {
 		t.Fatalf("stdout mismatch: %q != %q", res.stdout, want)
 	}
@@ -845,7 +881,13 @@ func TestCLIOutputOverwrite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read output: %v", err)
 	}
-	want := fmt.Sprintf("%s  sample.txt\n", sumHex)
+	// Windows defaults to binary mode (asterisk marker)
+	var want string
+	if runtime.GOOS == "windows" {
+		want = fmt.Sprintf("%s *sample.txt\n", sumHex)
+	} else {
+		want = fmt.Sprintf("%s  sample.txt\n", sumHex)
+	}
 	if string(got) != want {
 		t.Fatalf("output mismatch: %q != %q", string(got), want)
 	}
