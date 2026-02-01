@@ -337,10 +337,10 @@ func findDigestByTagName(name string) (digestSpec, bool) {
 func usage(w io.Writer) {
 	fmt.Fprintf(w, "Usage: %s [OPTION]... [FILE]...\n", progName)
 	fmt.Fprintf(w, "\nWith no FILE, or when FILE is -, read standard input.\n\n")
-	fmt.Fprintf(w, "  -b, --binary         read in binary mode\n")
+	fmt.Fprintf(w, "  -b, --binary         read in binary mode (default on Windows)\n")
 	fmt.Fprintf(w, "  -c, --check          read checksum lists from the FILEs and check them\n")
 	fmt.Fprintf(w, "      --tag            create a BSD-style checksum\n")
-	fmt.Fprintf(w, "  -t, --text           read in text mode (default)\n")
+	fmt.Fprintf(w, "  -t, --text           read in text mode (default on Linux and macOS)\n")
 	fmt.Fprintf(w, "  -z, --zero           end each output line with NUL, not newline,\n")
 	fmt.Fprintf(w, "                       and disable file name escaping\n\n")
 	fmt.Fprintf(w, "The following five options are useful only when verifying checksums:\n")

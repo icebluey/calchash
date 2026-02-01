@@ -10,7 +10,7 @@ and verification of GNU/BSD checksum lists.
 - BSD output: "ALGO (file) = <hex>" via `--tag`.
 - Check mode `-c` for GNU and BSD lists (BSD lines carry their own algorithm).
 - UTF-8 BOM and UTF-16LE list decoding (BOM or heuristic).
-- Windows text mode normalization (CRLF -> LF) when not in binary mode.
+- Windows defaults to binary mode; text mode (`-t`) normalizes CRLF to LF.
 
 ## Build
 ```
@@ -42,8 +42,8 @@ calchash -l
 ```
 
 ## Options (summary)
-- `-b, --binary` read in binary mode.
-- `-t, --text` read in text mode (default). On Windows, normalizes CRLF to LF.
+- `-b, --binary` read in binary mode (default on Windows).
+- `-t, --text` read in text mode (default on Linux/macOS). On Windows, normalizes CRLF to LF.
 - `-c, --check` read checksum lists and verify.
 - `--tag` output BSD-style "ALGO (file) = digest".
 - `-z, --zero` terminate lines with NUL and disable filename escaping; in `-c`,
@@ -89,8 +89,8 @@ BSD tag names are shown in parentheses.
 ## Output formats
 GNU style (default):
 ```
-<hex>  <file>
-<hex> *<file>     # when -b or when the list line uses '*'
+<hex>  <file>     # default on Linux/macOS
+<hex> *<file>     # default on Windows; or when -b, or when the list line uses '*'
 ```
 
 BSD style (`--tag`):
@@ -111,7 +111,8 @@ When `-z` is used, output lines end with NUL and filenames are not escaped.
   reported as non-BSD and the run exits with a missing-digest error.
 - Lines starting with `#` and blank lines are ignored.
 - In check mode on Windows, GNU `*` markers force binary mode for that line;
-  otherwise GNU lines use text mode. BSD lines honor the global `-b/-t` flags.
+  otherwise GNU lines use text mode (the global `-b` default means binary
+  is used unless the marker is absent). BSD lines honor the global `-b/-t` flags.
   On non-Windows, text/binary are equivalent.
 - On Windows, verify BSD lists with the same `-b/-t` used when generating them.
 - UTF-8 BOM is supported. UTF-16LE BOM or heuristic decoding is supported
@@ -142,7 +143,10 @@ calchash -sha512 -o sums.txt file1.bin file2.bin
 # append to an existing output file
 calchash -sha512 -o sums.txt -a file3.bin
 
-# Windows: verify a BSD list generated in binary mode
-calchash -sha256 --tag -b "C:\Program Files\GnuPG\README.txt" -o hash.txt
-calchash -sha256 -b -c hash.txt
+# Windows: verify a BSD list (binary mode is default on Windows)
+calchash -sha256 --tag "C:\Program Files\GnuPG\README.txt" -o hash.txt
+calchash -sha256 -c hash.txt
+
+# Windows: force text mode for line ending normalization
+calchash -sha256 -t -c checksums.txt
 ```
