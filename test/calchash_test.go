@@ -18,7 +18,7 @@ import (
 	"unicode/utf16"
 
 	whirlpoolhash "github.com/jzelinskie/whirlpool"
-	"lukechampine.com/blake3"
+	blake3 "github.com/zeebo/blake3"
 
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/crypto/blake2s"
@@ -176,7 +176,7 @@ func digestBytes(t *testing.T, name string, data []byte) []byte {
 		}
 		return sumHash(h, data)
 	case "blake3":
-		h := blake3.New(32, nil)
+		h := blake3.New()
 		return sumHash(h, data)
 	case "md4":
 		return sumHash(md4.New(), data)

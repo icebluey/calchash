@@ -12,7 +12,7 @@
 // Important.
 // - A digest option is REQUIRED. There is no default digest.
 // - Whirlpool uses github.com/jzelinskie/whirlpool (x/crypto does not include it).
-// - BLAKE3 uses lukechampine.com/blake3.
+// - BLAKE3 uses github.com/zeebo/blake3 (AVX2/SSE4.1 accelerated).
 
 package main
 
@@ -38,7 +38,7 @@ import (
 	"unicode/utf8"
 
 	whirlpoolhash "github.com/jzelinskie/whirlpool"
-	"lukechampine.com/blake3"
+	blake3 "github.com/zeebo/blake3"
 
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/crypto/blake2s"
@@ -163,7 +163,7 @@ var digestList = []digestSpec{
 		tagName:   "BLAKE3",
 		digestLen: 32,
 		newFn: func() (digester, error) {
-			return &hashDigester{h: blake3.New(32, nil)}, nil
+			return &hashDigester{h: blake3.New()}, nil
 		},
 	},
 	{
