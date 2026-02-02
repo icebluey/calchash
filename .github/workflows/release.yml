@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Linux AMD64 v3
+          - goos: linux
+            goarch: amd64
+            goamd64: v3
+            suffix: ''
+          # Linux ARM64
+          - goos: linux
+            goarch: arm64
+            suffix: '-arm64'
+          # macOS AMD64
+          - goos: darwin
+            goarch: amd64
+            suffix: '-darwin-amd64'
+          # macOS ARM64 (Apple Silicon)
+          - goos: darwin
+            goarch: arm64
+            suffix: '-darwin-arm64'
+          # Windows AMD64 v3
+          - goos: windows
+            goarch: amd64
+            goamd64: v3
+            suffix: '.exe'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.25.x'
+          check-latest: true
+          cache: true
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOAMD64: ${{ matrix.goamd64 }}
+        run: |
+          output="calchash${{ matrix.suffix }}"
+          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -mod=mod -o "$output" .
+          echo "Built: $output"
+          ls -la "$output"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: calchash-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}
+          path: calchash${{ matrix.suffix }}
+          retention-days: 1
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
