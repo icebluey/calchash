@@ -17,8 +17,8 @@ import (
 	"testing"
 	"unicode/utf16"
 
+	blake3 "github.com/icebluey/blake3"
 	whirlpoolhash "github.com/jzelinskie/whirlpool"
-	blake3 "github.com/zeebo/blake3"
 
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/crypto/blake2s"

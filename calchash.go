@@ -12,7 +12,7 @@
 // Important.
 // - A digest option is REQUIRED. There is no default digest.
 // - Whirlpool uses github.com/jzelinskie/whirlpool (x/crypto does not include it).
-// - BLAKE3 uses github.com/zeebo/blake3 (AVX2/SSE4.1 accelerated).
+// - BLAKE3 uses github.com/icebluey/blake3 (forked from zeebo/blake3)
 
 package main
 
@@ -37,8 +37,8 @@ import (
 	"unicode/utf16"
 	"unicode/utf8"
 
+	blake3 "github.com/icebluey/blake3"
 	whirlpoolhash "github.com/jzelinskie/whirlpool"
-	blake3 "github.com/zeebo/blake3"
 
 	"golang.org/x/crypto/blake2b"
 	"golang.org/x/crypto/blake2s"
