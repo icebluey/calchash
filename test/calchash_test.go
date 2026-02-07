@@ -420,6 +420,60 @@ func TestCLICheckAutoBSD(t *testing.T) {
 	}
 }
 
+func TestCLICheckAutoBSDSHA2Aliases(t *testing.T) {
+	dir := t.TempDir()
+	entries := []struct {
+		computeAlgo string
+		aliasTag    string
+		name        string
+		data        []byte
+	}{
+		{"sha224", "SHA2-224", "sha2-224.log", []byte("sha2-224\n")},
+		{"sha256", "SHA2-256", "sha2-256.log", []byte("sha2-256\n")},
+		{"sha384", "SHA2-384", "sha2-384.log", []byte("sha2-384\n")},
+		{"sha512", "SHA2-512", "sha2-512.log", []byte("sha2-512\n")},
+		{"sha512-224", "SHA2-512/224", "sha2-512-224.log", []byte("sha2-512-224\n")},
+		{"sha512-256", "SHA2-512/256", "sha2-512-256.log", []byte("sha2-512-256\n")},
+	}
+
+	var list strings.Builder
+	for _, e := range entries {
+		writeFile(t, dir, e.name, e.data)
+		sum := digestBytes(t, e.computeAlgo, e.data)
+		list.WriteString(fmt.Sprintf("%s (%s) = %s\n", e.aliasTag, e.name, hex.EncodeToString(sum)))
+	}
+	writeFile(t, dir, "checksums.txt", []byte(list.String()))
+
+	res := runCmd(t, dir, "", "-c", "checksums.txt")
+	if res.exitCode != 0 {
+		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
+	}
+	var want strings.Builder
+	for _, e := range entries {
+		want.WriteString(fmt.Sprintf("%s: OK\n", e.name))
+	}
+	if res.stdout != want.String() {
+		t.Fatalf("unexpected stdout: %q", res.stdout)
+	}
+}
+
+func TestCLICheckBSDOpenSSLStyleNoSpaces(t *testing.T) {
+	dir := t.TempDir()
+	data := []byte("openssl-style\n")
+	writeFile(t, dir, "sample.txt", data)
+	sum := digestBytes(t, "sha256", data)
+	list := fmt.Sprintf("SHA2-256(sample.txt)= %s\n", hex.EncodeToString(sum))
+	writeFile(t, dir, "checksums.txt", []byte(list))
+
+	res := runCmd(t, dir, "", "-c", "checksums.txt")
+	if res.exitCode != 0 {
+		t.Fatalf("exit %d: %s", res.exitCode, res.stderr)
+	}
+	if res.stdout != "sample.txt: OK\n" {
+		t.Fatalf("unexpected stdout: %q", res.stdout)
+	}
+}
+
 func TestCLICheckAutoBSDContinuesAfterBadLine(t *testing.T) {
 	dir := t.TempDir()
 	data := []byte("ok\n")

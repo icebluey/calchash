@@ -320,14 +320,27 @@ var digestByFlag = func() map[string]digestSpec {
 	return m
 }()
 
+var bsdAlgoAliases = map[string]string{
+	"SHA2-224":     "SHA224",
+	"SHA2-256":     "SHA256",
+	"SHA2-384":     "SHA384",
+	"SHA2-512":     "SHA512",
+	"SHA2-512/224": "SHA512-224",
+	"SHA2-512/256": "SHA512-256",
+}
+
 func findDigest(name string) (digestSpec, bool) {
 	d, ok := digestByFlag[name]
 	return d, ok
 }
 
 func findDigestByTagName(name string) (digestSpec, bool) {
+	norm := strings.ToUpper(strings.TrimSpace(name))
+	if alias, ok := bsdAlgoAliases[norm]; ok {
+		norm = alias
+	}
 	for _, d := range digestList {
-		if strings.EqualFold(name, d.tagName) || strings.EqualFold(name, d.flagName) {
+		if strings.EqualFold(norm, d.tagName) || strings.EqualFold(norm, d.flagName) {
 			return d, true
 		}
 	}
@@ -659,18 +672,24 @@ func parseChecksumLine(line string) parsedLine {
 		return parsedLine{}
 	}
 
-	/* BSD style: ALGO (filename) = digest */
-	if i := strings.Index(line, " ("); i >= 0 {
-		if j := strings.Index(line, ") = "); j > i {
-			algo := strings.TrimSpace(line[:i])
-			fn := line[i+2 : j]
-			dh := strings.TrimSpace(line[j+4:])
-			if algo != "" && fn != "" && dh != "" {
-				return parsedLine{
-					ok:        true,
-					hexDigest: dh,
-					filename:  fn,
-					bsdAlgo:   algo,
+	/* BSD/OpenSSL style: ALGO (filename) = digest or ALGO(filename)= digest */
+	if eq := strings.LastIndexByte(line, '='); eq > 0 {
+		left := strings.TrimSpace(line[:eq])
+		dh := strings.TrimSpace(line[eq+1:])
+		if dh != "" {
+			if i := strings.IndexByte(left, '('); i > 0 {
+				if j := strings.LastIndexByte(left, ')'); j > i && strings.TrimSpace(left[j+1:]) == "" {
+					algo := strings.TrimSpace(left[:i])
+					fn := left[i+1 : j]
+					if algo != "" && fn != "" {
+						return parsedLine{
+							ok:        true,
+							hexDigest: dh,
+							filename:  fn,
+							binary:    false,
+							bsdAlgo:   algo,
+						}
+					}
 				}
 			}
 		}
