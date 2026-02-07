@@ -735,7 +735,7 @@ func TestCLIHelpAndVersion(t *testing.T) {
 	if ver.exitCode != 0 {
 		t.Fatalf("version exit %d: %s", ver.exitCode, ver.stderr)
 	}
-	if strings.TrimSpace(ver.stdout) != "calchash 1.0.0" {
+	if strings.TrimSpace(ver.stdout) != "calchash 1.0.1" {
 		t.Fatalf("unexpected version: %q", ver.stdout)
 	}
 }

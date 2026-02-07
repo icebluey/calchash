@@ -49,7 +49,7 @@ import (
 
 const (
 	progName    = "calchash"
-	progVersion = "1.0.0"
+	progVersion = "1.0.1"
 
 	bufLen      = 1 << 16
 	utf16BufLen = 4096
