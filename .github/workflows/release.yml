@@ -51,7 +51,7 @@ jobs:
           GOAMD64: ${{ matrix.goamd64 }}
         run: |
           output="calchash${{ matrix.suffix }}"
-          CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -mod=mod -o "$output" .
+          go env && go mod tidy && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -mod=mod -o "$output" .
           echo "Built: $output"
           ls -la "$output"
 
